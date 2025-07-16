@@ -578,7 +578,7 @@
                     trackDiv.innerHTML = `
                         <div class="track-header">🎵 ${trackName}</div>
                         <div>Events: ${track.events.length} | Notes: ${noteCount}</div>
-                        <div style="font-size: 0.8em; opacity: 0.7;">Playing: ${this.mp3Data ? 'MP3 Audio' : 'No audio'}</div>
+                        <div style="font-size: 0.8em; opacity: 0.7;">Audio: MP3 will play synchronized with MIDI timing</div>
                     `;
                     
                     trackList.appendChild(trackDiv);
@@ -605,20 +605,25 @@
 
                 this.stopAllSources();
                 
-                // Create audio sources for each track
-                this.midiData.tracks.forEach(() => {
-                    const source = this.audioContext.createBufferSource();
-                    source.buffer = this.audioBuffer;
-                    source.connect(this.audioContext.destination);
-                    this.audioSources.push(source);
-                });
+                // Create only ONE audio source (not one per track)
+                const source = this.audioContext.createBufferSource();
+                source.buffer = this.audioBuffer;
+                source.connect(this.audioContext.destination);
+                source.loop = false;
+                
+                // Handle when the audio naturally ends
+                source.onended = () => {
+                    if (this.isPlaying) {
+                        this.stopPlayback();
+                    }
+                };
+                
+                this.audioSources = [source];
 
                 const offset = this.pauseTime;
                 this.startTime = this.audioContext.currentTime - offset;
                 
-                this.audioSources.forEach(source => {
-                    source.start(0, offset);
-                });
+                source.start(0, offset);
 
                 this.isPlaying = true;
                 document.getElementById('playPause').textContent = '⏸️ Pause';
@@ -626,7 +631,7 @@
             }
 
             pausePlayback() {
-                this.pauseTime = this.audioContext.currentTime - this.startTime;
+                this.pauseTime = Math.min(this.audioContext.currentTime - this.startTime, this.duration);
                 this.stopAllSources();
                 this.isPlaying = false;
                 document.getElementById('playPause').textContent = '▶️ Play';
@@ -666,7 +671,7 @@
             updateProgress() {
                 if (!this.isPlaying) return;
 
-                const currentTime = this.audioContext.currentTime - this.startTime;
+                const currentTime = Math.min(this.audioContext.currentTime - this.startTime, this.duration);
                 const progress = Math.min(currentTime / this.duration, 1) * 100;
                 
                 document.getElementById('progressFill').style.width = progress + '%';
