@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIDI + MP3 Player</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .screen {
+            display: none;
+            text-align: center;
+            width: 100%;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        .screen.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            background: linear-gradient(45deg, #ff6b6b, #ffd93d);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        h2 {
+            font-size: 2em;
+            margin-bottom: 30px;
+            color: #f8f9fa;
+        }
+
+        .upload-area {
+            border: 3px dashed rgba(255, 255, 255, 0.5);
+            border-radius: 15px;
+            padding: 60px 30px;
+            margin: 30px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .upload-area:hover {
+            border-color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+            transform: scale(1.02);
+        }
+
+        .upload-area.dragover {
+            border-color: #ffd93d;
+            background: rgba(255, 217, 61, 0.1);
+        }
+
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+            opacity: 0.7;
+        }
+
+        .upload-text {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #ff6b6b, #ffd93d);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 50px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.3);
+            margin: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(255, 107, 107, 0.4);
+        }
+
+        .btn:disabled {
+            background: rgba(255, 255, 255, 0.3);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .file-info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 4px solid #ff6b6b;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+
+        .track-info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+            text-align: left;
+        }
+
+        .track-header {
+            font-weight: bold;
+            color: #ffd93d;
+            margin-bottom: 5px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(45deg, #ff6b6b, #ffd93d);
+            width: 0%;
+            transition: width 0.1s ease;
+        }
+
+        .time-display {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .error {
+            background: rgba(255, 0, 0, 0.2);
+            color: #ff6b6b;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border: 1px solid rgba(255, 107, 107, 0.3);
+        }
+
+        @media (max-width: 600px) {
+            .card {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .upload-area {
+                padding: 40px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Screen 1: MIDI Upload -->
+        <div id="midiScreen" class="screen active">
+            <div class="card">
+                <h1>🎵 MIDI + MP3 Player</h1>
+                <h2>Step 1: Upload MIDI File</h2>
+                <div class="upload-area" id="midiUpload">
+                    <div class="upload-icon">🎹</div>
+                    <div class="upload-text">Drop your MIDI file here or click to browse</div>
+                    <div style="font-size: 0.9em; opacity: 0.7;">Supported formats: .mid, .midi</div>
+                </div>
+                <input type="file" id="midiFile" class="file-input" accept=".mid,.midi">
+                <div id="midiInfo" class="file-info" style="display: none;"></div>
+                <button id="nextToMp3" class="btn" disabled>Next: Upload MP3 →</button>
+            </div>
+        </div>
+
+        <!-- Screen 2: MP3 Upload -->
+        <div id="mp3Screen" class="screen">
+            <div class="card">
+                <h2>Step 2: Upload MP3 File</h2>
+                <div class="upload-area" id="mp3Upload">
+                    <div class="upload-icon">🎵</div>
+                    <div class="upload-text">Drop your MP3 file here or click to browse</div>
+                    <div style="font-size: 0.9em; opacity: 0.7;">This audio will play on all MIDI tracks</div>
+                </div>
+                <input type="file" id="mp3File" class="file-input" accept=".mp3">
+                <div id="mp3Info" class="file-info" style="display: none;"></div>
+                <div class="controls">
+                    <button id="backToMidi" class="btn">← Back</button>
+                    <button id="startPlayer" class="btn" disabled>Start Player →</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Screen 3: Player -->
+        <div id="playerScreen" class="screen">
+            <div class="card">
+                <h2>🎼 Playing MIDI + MP3</h2>
+                <div id="trackList"></div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="time-display">
+                    <span id="currentTime">0:00</span>
+                    <span id="totalTime">0:00</span>
+                </div>
+                <div class="controls">
+                    <button id="playPause" class="btn">▶️ Play</button>
+                    <button id="stop" class="btn">⏹️ Stop</button>
+                    <button id="restart" class="btn">🔄 Restart</button>
+                </div>
+                <div class="controls">
+                    <button id="backToMp3" class="btn">← Back to MP3</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class MidiMp3Player {
+            constructor() {
+                this.midiData = null;
+                this.mp3Data = null;
+                this.audioContext = null;
+                this.audioBuffer = null;
+                this.audioSources = [];
+                this.midiTracks = [];
+                this.isPlaying = false;
+                this.startTime = 0;
+                this.pauseTime = 0;
+                this.duration = 0;
+                this.animationFrame = null;
+                
+                this.initializeEventListeners();
+            }
+
+            initializeEventListeners() {
+                // MIDI Upload
+                const midiUpload = document.getElementById('midiUpload');
+                const midiFile = document.getElementById('midiFile');
+                
+                midiUpload.addEventListener('click', () => midiFile.click());
+                midiUpload.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    midiUpload.classList.add('dragover');
+                });
+                midiUpload.addEventListener('dragleave', () => {
+                    midiUpload.classList.remove('dragover');
+                });
+                midiUpload.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    midiUpload.classList.remove('dragover');
+                    const file = e.dataTransfer.files[0];
+                    if (file) this.handleMidiFile(file);
+                });
+                
+                midiFile.addEventListener('change', (e) => {
+                    if (e.target.files[0]) this.handleMidiFile(e.target.files[0]);
+                });
+
+                // MP3 Upload
+                const mp3Upload = document.getElementById('mp3Upload');
+                const mp3File = document.getElementById('mp3File');
+                
+                mp3Upload.addEventListener('click', () => mp3File.click());
+                mp3Upload.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    mp3Upload.classList.add('dragover');
+                });
+                mp3Upload.addEventListener('dragleave', () => {
+                    mp3Upload.classList.remove('dragover');
+                });
+                mp3Upload.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    mp3Upload.classList.remove('dragover');
+                    const file = e.dataTransfer.files[0];
+                    if (file) this.handleMp3File(file);
+                });
+                
+                mp3File.addEventListener('change', (e) => {
+                    if (e.target.files[0]) this.handleMp3File(e.target.files[0]);
+                });
+
+                // Navigation
+                document.getElementById('nextToMp3').addEventListener('click', () => this.showScreen('mp3Screen'));
+                document.getElementById('backToMidi').addEventListener('click', () => this.showScreen('midiScreen'));
+                document.getElementById('startPlayer').addEventListener('click', () => this.initializePlayer());
+                document.getElementById('backToMp3').addEventListener('click', () => this.showScreen('mp3Screen'));
+
+                // Player controls
+                document.getElementById('playPause').addEventListener('click', () => this.togglePlayPause());
+                document.getElementById('stop').addEventListener('click', () => this.stopPlayback());
+                document.getElementById('restart').addEventListener('click', () => this.restartPlayback());
+            }
+
+            showScreen(screenId) {
+                document.querySelectorAll('.screen').forEach(screen => {
+                    screen.classList.remove('active');
+                });
+                document.getElementById(screenId).classList.add('active');
+            }
+
+            async handleMidiFile(file) {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    this.midiData = this.parseMidi(arrayBuffer);
+                    
+                    document.getElementById('midiInfo').innerHTML = `
+                        <strong>📁 ${file.name}</strong><br>
+                        Size: ${(file.size / 1024).toFixed(1)} KB<br>
+                        Tracks: ${this.midiData.tracks.length}<br>
+                        Format: ${this.midiData.format}<br>
+                        Division: ${this.midiData.division}
+                    `;
+                    document.getElementById('midiInfo').style.display = 'block';
+                    document.getElementById('nextToMp3').disabled = false;
+                } catch (error) {
+                    this.showError('Error reading MIDI file: ' + error.message);
+                }
+            }
+
+            async handleMp3File(file) {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    this.mp3Data = arrayBuffer;
+                    
+                    document.getElementById('mp3Info').innerHTML = `
+                        <strong>🎵 ${file.name}</strong><br>
+                        Size: ${(file.size / 1024 / 1024).toFixed(1)} MB<br>
+                        Type: ${file.type}
+                    `;
+                    document.getElementById('mp3Info').style.display = 'block';
+                    document.getElementById('startPlayer').disabled = false;
+                } catch (error) {
+                    this.showError('Error reading MP3 file: ' + error.message);
+                }
+            }
+
+            parseMidi(arrayBuffer) {
+                // Basic MIDI parser
+                const view = new DataView(arrayBuffer);
+                let offset = 0;
+
+                // Read header
+                const headerChunk = this.readString(view, offset, 4);
+                if (headerChunk !== 'MThd') {
+                    throw new Error('Invalid MIDI file');
+                }
+                
+                offset += 4;
+                const headerLength = view.getUint32(offset);
+                offset += 4;
+                const format = view.getUint16(offset);
+                offset += 2;
+                const trackCount = view.getUint16(offset);
+                offset += 2;
+                const division = view.getUint16(offset);
+                offset += 2;
+
+                const tracks = [];
+                for (let i = 0; i < trackCount; i++) {
+                    const track = this.parseTrack(view, offset);
+                    tracks.push(track);
+                    offset = track.nextOffset;
+                }
+
+                return { format, trackCount, division, tracks };
+            }
+
+            parseTrack(view, offset) {
+                const trackHeader = this.readString(view, offset, 4);
+                if (trackHeader !== 'MTrk') {
+                    throw new Error('Invalid track header');
+                }
+                
+                offset += 4;
+                const trackLength = view.getUint32(offset);
+                offset += 4;
+                const startOffset = offset;
+                
+                const events = [];
+                let currentTime = 0;
+                let runningStatus = 0;
+
+                while (offset < startOffset + trackLength) {
+                    const deltaTime = this.readVariableLength(view, offset);
+                    offset = deltaTime.nextOffset;
+                    currentTime += deltaTime.value;
+
+                    const eventByte = view.getUint8(offset);
+                    let event;
+
+                    if (eventByte >= 0x80) {
+                        runningStatus = eventByte;
+                        offset++;
+                    }
+
+                    if (runningStatus >= 0x80 && runningStatus <= 0xEF) {
+                        event = this.parseMidiEvent(view, offset, runningStatus, currentTime);
+                    } else if (runningStatus === 0xFF) {
+                        event = this.parseMetaEvent(view, offset, currentTime);
+                    } else if (runningStatus === 0xF0) {
+                        event = this.parseSysexEvent(view, offset, currentTime);
+                    }
+
+                    if (event) {
+                        events.push(event);
+                        offset = event.nextOffset;
+                    } else {
+                        offset++;
+                    }
+                }
+
+                return {
+                    events,
+                    nextOffset: startOffset + trackLength
+                };
+            }
+
+            parseMidiEvent(view, offset, status, time) {
+                const channel = status & 0x0F;
+                const type = status & 0xF0;
+                
+                let data1 = 0, data2 = 0;
+                let nextOffset = offset;
+
+                if (type !== 0xC0 && type !== 0xD0) {
+                    data1 = view.getUint8(nextOffset++);
+                    data2 = view.getUint8(nextOffset++);
+                } else {
+                    data1 = view.getUint8(nextOffset++);
+                }
+
+                return {
+                    type: 'midi',
+                    time,
+                    channel,
+                    status: type,
+                    data1,
+                    data2,
+                    nextOffset
+                };
+            }
+
+            parseMetaEvent(view, offset, time) {
+                const type = view.getUint8(offset++);
+                const length = this.readVariableLength(view, offset);
+                offset = length.nextOffset;
+
+                let data = '';
+                if (type === 0x03) { // Track name
+                    data = this.readString(view, offset, length.value);
+                }
+
+                return {
+                    type: 'meta',
+                    time,
+                    metaType: type,
+                    data,
+                    nextOffset: offset + length.value
+                };
+            }
+
+            parseSysexEvent(view, offset, time) {
+                const length = this.readVariableLength(view, offset);
+                return {
+                    type: 'sysex',
+                    time,
+                    nextOffset: length.nextOffset + length.value
+                };
+            }
+
+            readVariableLength(view, offset) {
+                let value = 0;
+                let byte;
+                let nextOffset = offset;
+
+                do {
+                    byte = view.getUint8(nextOffset++);
+                    value = (value << 7) | (byte & 0x7F);
+                } while (byte & 0x80);
+
+                return { value, nextOffset };
+            }
+
+            readString(view, offset, length) {
+                let result = '';
+                for (let i = 0; i < length; i++) {
+                    result += String.fromCharCode(view.getUint8(offset + i));
+                }
+                return result;
+            }
+
+            async initializePlayer() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.audioBuffer = await this.audioContext.decodeAudioData(this.mp3Data.slice(0));
+                    this.duration = this.audioBuffer.duration;
+                    
+                    this.displayTracks();
+                    this.showScreen('playerScreen');
+                    
+                    document.getElementById('totalTime').textContent = this.formatTime(this.duration);
+                } catch (error) {
+                    this.showError('Error initializing player: ' + error.message);
+                }
+            }
+
+            displayTracks() {
+                const trackList = document.getElementById('trackList');
+                trackList.innerHTML = '';
+
+                this.midiData.tracks.forEach((track, index) => {
+                    const trackDiv = document.createElement('div');
+                    trackDiv.className = 'track-info';
+                    
+                    const trackName = this.getTrackName(track) || `Track ${index + 1}`;
+                    const noteCount = track.events.filter(e => e.type === 'midi' && (e.status === 0x90 || e.status === 0x80)).length;
+                    
+                    trackDiv.innerHTML = `
+                        <div class="track-header">🎵 ${trackName}</div>
+                        <div>Events: ${track.events.length} | Notes: ${noteCount}</div>
+                        <div style="font-size: 0.8em; opacity: 0.7;">Playing: ${this.mp3Data ? 'MP3 Audio' : 'No audio'}</div>
+                    `;
+                    
+                    trackList.appendChild(trackDiv);
+                });
+            }
+
+            getTrackName(track) {
+                const nameEvent = track.events.find(e => e.type === 'meta' && e.metaType === 0x03);
+                return nameEvent ? nameEvent.data : null;
+            }
+
+            togglePlayPause() {
+                if (this.isPlaying) {
+                    this.pausePlayback();
+                } else {
+                    this.startPlayback();
+                }
+            }
+
+            startPlayback() {
+                if (this.audioContext.state === 'suspended') {
+                    this.audioContext.resume();
+                }
+
+                this.stopAllSources();
+                
+                // Create audio sources for each track
+                this.midiData.tracks.forEach(() => {
+                    const source = this.audioContext.createBufferSource();
+                    source.buffer = this.audioBuffer;
+                    source.connect(this.audioContext.destination);
+                    this.audioSources.push(source);
+                });
+
+                const offset = this.pauseTime;
+                this.startTime = this.audioContext.currentTime - offset;
+                
+                this.audioSources.forEach(source => {
+                    source.start(0, offset);
+                });
+
+                this.isPlaying = true;
+                document.getElementById('playPause').textContent = '⏸️ Pause';
+                this.updateProgress();
+            }
+
+            pausePlayback() {
+                this.pauseTime = this.audioContext.currentTime - this.startTime;
+                this.stopAllSources();
+                this.isPlaying = false;
+                document.getElementById('playPause').textContent = '▶️ Play';
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                }
+            }
+
+            stopPlayback() {
+                this.stopAllSources();
+                this.isPlaying = false;
+                this.pauseTime = 0;
+                document.getElementById('playPause').textContent = '▶️ Play';
+                document.getElementById('progressFill').style.width = '0%';
+                document.getElementById('currentTime').textContent = '0:00';
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                }
+            }
+
+            restartPlayback() {
+                this.stopPlayback();
+                this.startPlayback();
+            }
+
+            stopAllSources() {
+                this.audioSources.forEach(source => {
+                    try {
+                        source.stop();
+                    } catch (e) {
+                        // Source might already be stopped
+                    }
+                });
+                this.audioSources = [];
+            }
+
+            updateProgress() {
+                if (!this.isPlaying) return;
+
+                const currentTime = this.audioContext.currentTime - this.startTime;
+                const progress = Math.min(currentTime / this.duration, 1) * 100;
+                
+                document.getElementById('progressFill').style.width = progress + '%';
+                document.getElementById('currentTime').textContent = this.formatTime(currentTime);
+
+                if (currentTime >= this.duration) {
+                    this.stopPlayback();
+                    return;
+                }
+
+                this.animationFrame = requestAnimationFrame(() => this.updateProgress());
+            }
+
+            formatTime(seconds) {
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            }
+
+            showError(message) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error';
+                errorDiv.textContent = message;
+                document.querySelector('.screen.active .card').appendChild(errorDiv);
+                setTimeout(() => errorDiv.remove(), 5000);
+            }
+        }
+
+        // Initialize the application
+        const player = new MidiMp3Player();
+    </script>
+</body>
+</html>
