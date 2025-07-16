@@ -189,6 +189,29 @@
             opacity: 0.8;
         }
 
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .stat {
+            text-align: center;
+            padding: 10px;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #ffd93d;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
         .error {
             background: rgba(255, 0, 0, 0.2);
             color: #ff6b6b;
@@ -219,29 +242,29 @@
         <!-- Screen 1: MIDI Upload -->
         <div id="midiScreen" class="screen active">
             <div class="card">
-                <h1>🎵 MIDI + MP3 Player</h1>
+                <h1>🎵 MIDI Note Trigger Player</h1>
                 <h2>Step 1: Upload MIDI File</h2>
                 <div class="upload-area" id="midiUpload">
                     <div class="upload-icon">🎹</div>
                     <div class="upload-text">Drop your MIDI file here or click to browse</div>
-                    <div style="font-size: 0.9em; opacity: 0.7;">Supported formats: .mid, .midi</div>
+                    <div style="font-size: 0.9em; opacity: 0.7;">Each note will trigger the audio sample</div>
                 </div>
                 <input type="file" id="midiFile" class="file-input" accept=".mid,.midi">
                 <div id="midiInfo" class="file-info" style="display: none;"></div>
-                <button id="nextToMp3" class="btn" disabled>Next: Upload MP3 →</button>
+                <button id="nextToMp3" class="btn" disabled>Next: Upload Audio Sample →</button>
             </div>
         </div>
 
         <!-- Screen 2: MP3 Upload -->
         <div id="mp3Screen" class="screen">
             <div class="card">
-                <h2>Step 2: Upload MP3 File</h2>
+                <h2>Step 2: Upload Audio Sample</h2>
                 <div class="upload-area" id="mp3Upload">
                     <div class="upload-icon">🎵</div>
-                    <div class="upload-text">Drop your MP3 file here or click to browse</div>
-                    <div style="font-size: 0.9em; opacity: 0.7;">This audio will play on all MIDI tracks</div>
+                    <div class="upload-text">Drop your audio file here or click to browse</div>
+                    <div style="font-size: 0.9em; opacity: 0.7;">This will play for every MIDI note</div>
                 </div>
-                <input type="file" id="mp3File" class="file-input" accept=".mp3">
+                <input type="file" id="mp3File" class="file-input" accept=".mp3,.wav,.ogg">
                 <div id="mp3Info" class="file-info" style="display: none;"></div>
                 <div class="controls">
                     <button id="backToMidi" class="btn">← Back</button>
@@ -253,8 +276,21 @@
         <!-- Screen 3: Player -->
         <div id="playerScreen" class="screen">
             <div class="card">
-                <h2>🎼 Playing MIDI + MP3</h2>
-                <div id="trackList"></div>
+                <h2>🎼 MIDI Note Trigger Player</h2>
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-number" id="totalNotes">0</div>
+                        <div class="stat-label">Total Notes</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number" id="activeNotes">0</div>
+                        <div class="stat-label">Playing Now</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number" id="completedNotes">0</div>
+                        <div class="stat-label">Completed</div>
+                    </div>
+                </div>
                 <div class="progress-bar">
                     <div class="progress-fill" id="progressFill"></div>
                 </div>
@@ -267,27 +303,29 @@
                     <button id="stop" class="btn">⏹️ Stop</button>
                     <button id="restart" class="btn">🔄 Restart</button>
                 </div>
+                <div id="trackList"></div>
                 <div class="controls">
-                    <button id="backToMp3" class="btn">← Back to MP3</button>
+                    <button id="backToMp3" class="btn">← Back to Audio</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        class MidiMp3Player {
+        class MidiNoteTriggerPlayer {
             constructor() {
                 this.midiData = null;
-                this.mp3Data = null;
+                this.audioData = null;
                 this.audioContext = null;
                 this.audioBuffer = null;
-                this.audioSources = [];
-                this.midiTracks = [];
+                this.midiEvents = [];
+                this.scheduledEvents = [];
                 this.isPlaying = false;
                 this.startTime = 0;
                 this.pauseTime = 0;
-                this.duration = 0;
+                this.midiDuration = 0;
                 this.animationFrame = null;
+                this.activeSources = new Set();
                 
                 this.initializeEventListeners();
             }
@@ -316,7 +354,7 @@
                     if (e.target.files[0]) this.handleMidiFile(e.target.files[0]);
                 });
 
-                // MP3 Upload
+                // Audio Upload
                 const mp3Upload = document.getElementById('mp3Upload');
                 const mp3File = document.getElementById('mp3File');
                 
@@ -332,11 +370,11 @@
                     e.preventDefault();
                     mp3Upload.classList.remove('dragover');
                     const file = e.dataTransfer.files[0];
-                    if (file) this.handleMp3File(file);
+                    if (file) this.handleAudioFile(file);
                 });
                 
                 mp3File.addEventListener('change', (e) => {
-                    if (e.target.files[0]) this.handleMp3File(e.target.files[0]);
+                    if (e.target.files[0]) this.handleAudioFile(e.target.files[0]);
                 });
 
                 // Navigation
@@ -362,13 +400,14 @@
                 try {
                     const arrayBuffer = await file.arrayBuffer();
                     this.midiData = this.parseMidi(arrayBuffer);
+                    this.processNoteEvents();
                     
                     document.getElementById('midiInfo').innerHTML = `
                         <strong>📁 ${file.name}</strong><br>
                         Size: ${(file.size / 1024).toFixed(1)} KB<br>
                         Tracks: ${this.midiData.tracks.length}<br>
-                        Format: ${this.midiData.format}<br>
-                        Division: ${this.midiData.division}
+                        Note Events: ${this.midiEvents.length}<br>
+                        Duration: ${this.formatTime(this.midiDuration)}
                     `;
                     document.getElementById('midiInfo').style.display = 'block';
                     document.getElementById('nextToMp3').disabled = false;
@@ -377,25 +416,25 @@
                 }
             }
 
-            async handleMp3File(file) {
+            async handleAudioFile(file) {
                 try {
                     const arrayBuffer = await file.arrayBuffer();
-                    this.mp3Data = arrayBuffer;
+                    this.audioData = arrayBuffer;
                     
                     document.getElementById('mp3Info').innerHTML = `
                         <strong>🎵 ${file.name}</strong><br>
                         Size: ${(file.size / 1024 / 1024).toFixed(1)} MB<br>
-                        Type: ${file.type}
+                        Type: ${file.type}<br>
+                        Will trigger: ${this.midiEvents.length} times
                     `;
                     document.getElementById('mp3Info').style.display = 'block';
                     document.getElementById('startPlayer').disabled = false;
                 } catch (error) {
-                    this.showError('Error reading MP3 file: ' + error.message);
+                    this.showError('Error reading audio file: ' + error.message);
                 }
             }
 
             parseMidi(arrayBuffer) {
-                // Basic MIDI parser
                 const view = new DataView(arrayBuffer);
                 let offset = 0;
 
@@ -506,7 +545,7 @@
                 offset = length.nextOffset;
 
                 let data = '';
-                if (type === 0x03) { // Track name
+                if (type === 0x03) {
                     data = this.readString(view, offset, length.value);
                 }
 
@@ -549,45 +588,75 @@
                 return result;
             }
 
+            processNoteEvents() {
+                this.midiEvents = [];
+                let maxTime = 0;
+                const ticksPerSecond = this.midiData.division * 2; // Rough conversion
+
+                this.midiData.tracks.forEach((track, trackIndex) => {
+                    track.events.forEach(event => {
+                        if (event.type === 'midi' && event.status === 0x90 && event.data2 > 0) {
+                            // Note on event
+                            const timeInSeconds = event.time / ticksPerSecond;
+                            maxTime = Math.max(maxTime, timeInSeconds);
+                            
+                            this.midiEvents.push({
+                                time: timeInSeconds,
+                                track: trackIndex,
+                                note: event.data1,
+                                velocity: event.data2,
+                                channel: event.channel
+                            });
+                        }
+                    });
+                });
+
+                // Sort events by time
+                this.midiEvents.sort((a, b) => a.time - b.time);
+                this.midiDuration = maxTime;
+            }
+
             async initializePlayer() {
                 try {
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    this.audioBuffer = await this.audioContext.decodeAudioData(this.mp3Data.slice(0));
-                    this.duration = this.audioBuffer.duration;
+                    this.audioBuffer = await this.audioContext.decodeAudioData(this.audioData.slice(0));
                     
-                    this.displayTracks();
+                    this.displayStats();
                     this.showScreen('playerScreen');
                     
-                    document.getElementById('totalTime').textContent = this.formatTime(this.duration);
+                    document.getElementById('totalTime').textContent = this.formatTime(this.midiDuration);
                 } catch (error) {
                     this.showError('Error initializing player: ' + error.message);
                 }
             }
 
-            displayTracks() {
+            displayStats() {
+                document.getElementById('totalNotes').textContent = this.midiEvents.length;
+                document.getElementById('activeNotes').textContent = '0';
+                document.getElementById('completedNotes').textContent = '0';
+
                 const trackList = document.getElementById('trackList');
                 trackList.innerHTML = '';
+                
+                // Group events by track
+                const trackGroups = {};
+                this.midiEvents.forEach(event => {
+                    if (!trackGroups[event.track]) {
+                        trackGroups[event.track] = [];
+                    }
+                    trackGroups[event.track].push(event);
+                });
 
-                this.midiData.tracks.forEach((track, index) => {
+                Object.keys(trackGroups).forEach(trackIndex => {
                     const trackDiv = document.createElement('div');
                     trackDiv.className = 'track-info';
-                    
-                    const trackName = this.getTrackName(track) || `Track ${index + 1}`;
-                    const noteCount = track.events.filter(e => e.type === 'midi' && (e.status === 0x90 || e.status === 0x80)).length;
-                    
                     trackDiv.innerHTML = `
-                        <div class="track-header">🎵 ${trackName}</div>
-                        <div>Events: ${track.events.length} | Notes: ${noteCount}</div>
-                        <div style="font-size: 0.8em; opacity: 0.7;">Audio: MP3 will play synchronized with MIDI timing</div>
+                        <div class="track-header">Track ${parseInt(trackIndex) + 1}</div>
+                        <div>Notes: ${trackGroups[trackIndex].length}</div>
+                        <div style="font-size: 0.8em; opacity: 0.7;">Each note triggers audio sample</div>
                     `;
-                    
                     trackList.appendChild(trackDiv);
                 });
-            }
-
-            getTrackName(track) {
-                const nameEvent = track.events.find(e => e.type === 'meta' && e.metaType === 0x03);
-                return nameEvent ? nameEvent.data : null;
             }
 
             togglePlayPause() {
@@ -603,36 +672,18 @@
                     this.audioContext.resume();
                 }
 
-                this.stopAllSources();
+                this.clearScheduledEvents();
+                this.scheduleNoteEvents();
                 
-                // Create only ONE audio source (not one per track)
-                const source = this.audioContext.createBufferSource();
-                source.buffer = this.audioBuffer;
-                source.connect(this.audioContext.destination);
-                source.loop = false;
-                
-                // Handle when the audio naturally ends
-                source.onended = () => {
-                    if (this.isPlaying) {
-                        this.stopPlayback();
-                    }
-                };
-                
-                this.audioSources = [source];
-
-                const offset = this.pauseTime;
-                this.startTime = this.audioContext.currentTime - offset;
-                
-                source.start(0, offset);
-
+                this.startTime = this.audioContext.currentTime - this.pauseTime;
                 this.isPlaying = true;
                 document.getElementById('playPause').textContent = '⏸️ Pause';
                 this.updateProgress();
             }
 
             pausePlayback() {
-                this.pauseTime = Math.min(this.audioContext.currentTime - this.startTime, this.duration);
-                this.stopAllSources();
+                this.pauseTime = this.audioContext.currentTime - this.startTime;
+                this.clearScheduledEvents();
                 this.isPlaying = false;
                 document.getElementById('playPause').textContent = '▶️ Play';
                 if (this.animationFrame) {
@@ -641,12 +692,14 @@
             }
 
             stopPlayback() {
-                this.stopAllSources();
+                this.clearScheduledEvents();
                 this.isPlaying = false;
                 this.pauseTime = 0;
                 document.getElementById('playPause').textContent = '▶️ Play';
                 document.getElementById('progressFill').style.width = '0%';
                 document.getElementById('currentTime').textContent = '0:00';
+                document.getElementById('activeNotes').textContent = '0';
+                document.getElementById('completedNotes').textContent = '0';
                 if (this.animationFrame) {
                     cancelAnimationFrame(this.animationFrame);
                 }
@@ -657,32 +710,85 @@
                 this.startPlayback();
             }
 
-            stopAllSources() {
-                this.audioSources.forEach(source => {
+            scheduleNoteEvents() {
+                this.midiEvents.forEach(event => {
+                    const playTime = this.startTime + event.time;
+                    
+                    if (playTime > this.audioContext.currentTime) {
+                        const timeoutId = setTimeout(() => {
+                            this.triggerNote(event);
+                        }, (playTime - this.audioContext.currentTime) * 1000);
+                        
+                        this.scheduledEvents.push(timeoutId);
+                    }
+                });
+            }
+
+            triggerNote(event) {
+                if (!this.isPlaying) return;
+
+                const source = this.audioContext.createBufferSource();
+                source.buffer = this.audioBuffer;
+                
+                // Create gain node for velocity control
+                const gainNode = this.audioContext.createGain();
+                gainNode.gain.value = event.velocity / 127; // Convert MIDI velocity to 0-1
+                
+                source.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+                
+                source.start();
+                
+                // Track active sources
+                this.activeSources.add(source);
+                source.onended = () => {
+                    this.activeSources.delete(source);
+                };
+                
+                // Update stats
+                this.updateStats();
+            }
+
+            clearScheduledEvents() {
+                this.scheduledEvents.forEach(timeoutId => {
+                    clearTimeout(timeoutId);
+                });
+                this.scheduledEvents = [];
+                
+                // Stop all active sources
+                this.activeSources.forEach(source => {
                     try {
                         source.stop();
                     } catch (e) {
                         // Source might already be stopped
                     }
                 });
-                this.audioSources = [];
+                this.activeSources.clear();
             }
 
             updateProgress() {
                 if (!this.isPlaying) return;
 
-                const currentTime = Math.min(this.audioContext.currentTime - this.startTime, this.duration);
-                const progress = Math.min(currentTime / this.duration, 1) * 100;
+                const currentTime = Math.min(this.audioContext.currentTime - this.startTime, this.midiDuration);
+                const progress = Math.min(currentTime / this.midiDuration, 1) * 100;
                 
                 document.getElementById('progressFill').style.width = progress + '%';
                 document.getElementById('currentTime').textContent = this.formatTime(currentTime);
 
-                if (currentTime >= this.duration) {
+                if (currentTime >= this.midiDuration) {
                     this.stopPlayback();
                     return;
                 }
 
                 this.animationFrame = requestAnimationFrame(() => this.updateProgress());
+            }
+
+            updateStats() {
+                const currentTime = this.audioContext.currentTime - this.startTime;
+                const completedNotes = this.midiEvents.filter(event => event.time < currentTime).length;
+                
+                document.getElementById('activeNotes').textContent = this.activeSources.size;
+                document.getElementById('completedNotes').textContent = completedNotes;
             }
 
             formatTime(seconds) {
@@ -701,7 +807,7 @@
         }
 
         // Initialize the application
-        const player = new MidiMp3Player();
+        const player = new MidiNoteTriggerPlayer();
     </script>
 </body>
 </html>
